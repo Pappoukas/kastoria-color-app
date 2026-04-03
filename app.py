@@ -15,9 +15,9 @@ st.set_page_config(
 @st.cache_data
 def load_data():
     # Προσοχή: Βεβαιώσου ότι τα paths αντιστοιχούν στα αρχεία σου
-    summary_df = pd.read_csv('data/color_summary_batch_Summary.csv', skiprows=1) # skip first row header if needed based on your file
-    clusters_df = pd.read_csv('data/color_summary_batch_Clusters.csv', skiprows=1)
-    stats_df = pd.read_csv('data/color_summary_batch_Statistics.csv', skiprows=1)
+    summary_df = pd.read_csv('data/color_summary_batch_Summary.csv', skiprows=3) # skip header row if needed based on each file
+    clusters_df = pd.read_csv('data/color_summary_batch_Clusters.csv', skiprows=2)
+    stats_df = pd.read_csv('data/color_summary_batch_Statistics.csv', skiprows=3)
     
     # Καθαρισμός στηλών (ανάλογα το πώς τα βγάζει το Excel)
     if 'placeInfo/name' in summary_df.columns:

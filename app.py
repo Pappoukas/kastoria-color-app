@@ -11,15 +11,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. DATA LOADING (Με Caching για ταχύτητα) ---
+# --- 2. DATA LOADING (Με Caching & Διορθωμένο CSV Parsing) ---
 @st.cache_data
 def load_data():
-    # Προσοχή: Βεβαιώσου ότι τα paths αντιστοιχούν στα αρχεία σου
-    summary_df = pd.read_csv('data/color_summary_batch_Summary.csv', skiprows=3) # skip header row if needed based on each file
-    clusters_df = pd.read_csv('data/color_summary_batch_Clusters.csv', skiprows=2)
-    stats_df = pd.read_csv('data/color_summary_batch_Statistics.csv', skiprows=3)
+    # Προσθέσαμε το sep=';' και decimal=',' για να διαβάζει σωστά τα ευρωπαϊκά CSVs
+    # Επιπλέον, το skiprows προσαρμόστηκε ακριβώς στις κενές γραμμές κάθε αρχείου
+    summary_df = pd.read_csv('data/color_summary_batch_Summary.csv', sep=';', decimal=',', skiprows=2)
+    clusters_df = pd.read_csv('data/color_summary_batch_Clusters.csv', sep=';', decimal=',', skiprows=1)
+    stats_df = pd.read_csv('data/color_summary_batch_Statistics.csv', sep=';', decimal=',', skiprows=2)
     
-    # Καθαρισμός στηλών (ανάλογα το πώς τα βγάζει το Excel)
+    # Καθαρισμός στηλών για το όνομα του μνημείου
     if 'placeInfo/name' in summary_df.columns:
         summary_df['Monument'] = summary_df['placeInfo/name'].fillna('Unknown')
     else:
@@ -32,8 +33,11 @@ def load_data():
 
 try:
     summary_df, clusters_df, stats_df = load_data()
+except FileNotFoundError:
+    st.error("⚠️ Σφάλμα: Τα αρχεία δεν βρέθηκαν. Βεβαιώσου ότι τα έχεις μετονομάσει ακριβώς σε: 'color_summary_batch_Summary.csv', 'color_summary_batch_Clusters.csv', 'color_summary_batch_Statistics.csv' και τα έχεις βάλει μέσα στο φάκελο 'data'.")
+    st.stop()
 except Exception as e:
-    st.error(f"Σφάλμα φόρτωσης δεδομένων: {e}. Βεβαιώσου ότι τα αρχεία βρίσκονται στο φάκελο 'data/'.")
+    st.error(f"⚠️ Απρόσμενο σφάλμα φόρτωσης: {e}")
     st.stop()
 
 # --- 3. SIDEBAR & BRANDING ---
@@ -46,7 +50,8 @@ st.sidebar.markdown("""
 
 st.sidebar.markdown("---")
 # Global Filter
-selected_monument = st.sidebar.selectbox("Επιλογή Μνημείου / Τοποθεσίας", ["Όλα"] + list(summary_df['Monument'].unique()))
+monuments_list = summary_df['Monument'].dropna().unique().tolist()
+selected_monument = st.sidebar.selectbox("Επιλογή Μνημείου / Τοποθεσίας", ["Όλα"] + monuments_list)
 
 # Εφαρμογή φίλτρου
 if selected_monument != "Όλα":
@@ -79,7 +84,7 @@ with tab1:
         
         if bar_option == "Top 10 Χρώματα (Συνολικά)":
             top_colors = clusters_df.groupby(['Name', 'HEX'])['%'].mean().nlargest(10).reset_index()
-            # Δημιουργία dictionary για να παίρνει το plot το ακριβές HEX χρώμα!
+            # Δημιουργία dictionary για να παίρνει το plot το ακριβές HEX χρώμα
             color_map = {row['Name']: row['HEX'] for i, row in top_colors.iterrows()}
             
             fig_bar = px.bar(top_colors, x='Name', y='%', color='Name', color_discrete_map=color_map,
@@ -98,7 +103,6 @@ with tab1:
             st.plotly_chart(fig_bar2, use_container_width=True)
             
     with col_pie:
-        # Pie Chart
         st.write("") # Spacer
         st.write("")
         pie_data = clusters_df.groupby(['Name', 'HEX'])['%'].sum().nlargest(8).reset_index()
@@ -116,7 +120,6 @@ with tab2:
     
     with col_heat:
         st.subheader("Heatmap: RGB Intensity ανά Τοποθεσία")
-        # Υπολογισμός μέσου RGB ανά μνημείο
         heatmap_data = summary_df.groupby('Monument')[['R mean', 'G mean', 'B mean']].mean().reset_index()
         heatmap_data = heatmap_data.set_index('Monument')
         
@@ -128,7 +131,6 @@ with tab2:
         
     with col_scatter:
         st.subheader("Scatter Plot: Φωτεινότητα vs Κορεσμός")
-        # Brightness (V%) vs Saturation (S%)
         fig_scatter = px.scatter(summary_df, x='S% mean', y='V% mean', color='Monument', 
                                  hover_data=['Filename'], size_max=10, opacity=0.7,
                                  title="Saturation vs Brightness ανά Εικόνα",
@@ -137,12 +139,10 @@ with tab2:
 
 with tab3:
     st.header("Χρωματικά Προφίλ (Color Space Clustering)")
-    st.markdown("Εδώ βλέπουμε πώς ομαδοποιούνται τα χρώματα στον τρισδιάστατο χώρο CIELAB, ο οποίος προσομοιάζει το πώς αντιλαμβάνεται τα χρώματα το ανθρώπινο μάτι.")
+    st.markdown("Εδώ βλέπουμε πώς ομαδοποιούνται τα χρώματα στον τρισδιάστατο χώρο CIELAB.")
     
-    # 3D Scatter plot using L*, a*, b* from clusters
-    # Παίρνουμε ένα sample για να μη κολλήσει ο browser αν είναι χιλιάδες
+    # 3D Scatter plot using L*, a*, b*
     sample_clusters = clusters_df.sample(min(2000, len(clusters_df))) if len(clusters_df) > 2000 else clusters_df
-    
     cluster_color_map = {row['Name']: row['HEX'] for i, row in sample_clusters.iterrows()}
     
     fig_3d = px.scatter_3d(sample_clusters, x='L*', y='a*', z='b*',
@@ -158,7 +158,5 @@ with tab3:
     st.markdown("""
     ---
     ### 🌟 Bonus Marketing Insight
-    Με βάση τα παραπάνω δεδομένα, η παλέτα της Καστοριάς διαμορφώνεται κυρίως από **φυσικούς, γήινους τόνους** και τα **χρώματα της λίμνης**. Αυτό το dashboard μπορεί να χρησιμοποιηθεί ως εργαλείο από:
-    * **Social Media Managers:** Για να επιλέγουν φίλτρα και presets που ταιριάζουν στο "vibe" της πόλης.
-    * **Web Designers:** Για τον σχεδιασμό τουριστικών portal με χρώματα που αντλούνται απευθείας από τις εμπειρίες των χρηστών.
+    Με βάση τα παραπάνω δεδομένα, η παλέτα της Καστοριάς διαμορφώνεται κυρίως από **φυσικούς, γήινους τόνους** και τα **χρώματα της λίμνης**.
     """)
